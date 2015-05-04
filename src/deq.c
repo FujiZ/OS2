@@ -1,4 +1,4 @@
-#include <unistd.h>
+ï»¿#include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -7,7 +7,7 @@
 #include "job.h"
 
 /* 
- * ÃüÁîÓï·¨¸ñÊ½
+ * å‘½ä»¤è¯­æ³•æ ¼å¼
  *     deq jid
  */
 void usage()
