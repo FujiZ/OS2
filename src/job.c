@@ -9,7 +9,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include "job.h"
-#define DEBUG
+
 int jobid=0;
 int siginfo=1;
 int fifo;
@@ -27,47 +27,52 @@ void scheduler()
 	bzero(&cmd,DATALEN);
 	if((count=read(fifo,&cmd,DATALEN))<0)
 		error_sys("read fifo failed");
-#ifdef DEBUG
-    printf("Reading whether other process send commond!\n");
-	if(count){
-		printf("cmd cmdtype\t%d\ncmd defpri\t%d\ncmd data\t%s\n",cmd.type,cmd.defpri,cmd.data);
-	}
-	else
-		printf("no data read\n");
-#endif
+	#ifdef DEBUG
+    	printf("Reading whether other process send command!\n");
+		if(count){
+			printf("cmd cmdtype\t%d\ncmd defpri\t%d\ncmd data\t%s\n",cmd.type,cmd.defpri,cmd.data);
+		}
+		else
+			printf("no data read\n");
+	#endif
 
 	/* 更新等待队列中的作业 */
 	#ifdef DEBUG
-	       printf("Update jobs in wait queue!\n");
+		printf("Update jobs in wait queue!\n");
     #endif
 	updateall();
 
 	switch(cmd.type){
 	case ENQ:
 	#ifdef DEBUG
-	printf("Execute enq!\n");
+		printf("Execute enq!\n");
     #endif
 		do_enq(newjob,cmd);
 		break;
 	case DEQ:
 	#ifdef DEBUG
-	printf("Execute deq!\n");
+		printf("Execute deq!\n");
     #endif
 		do_deq(cmd);
 		break;
 	case STAT:
 	#ifdef DEBUG
-	printf("Execute stat!\n");
+		printf("Execute stat!\n");
     #endif
 		do_stat(cmd);
 		break;
 	default:
 		break;
 	}
-
+	#ifdef DEBUG
+		printf("Select which job to run next!\n");
+	#endif
 	/* 选择高优先级作业 */
 	next=jobselect();
 	/* 作业切换 */
+	#ifdef DEBUG
+		printf("Switch to the next job!\n");
+	#endif
 	jobswitch();
 }
 
@@ -79,7 +84,9 @@ int allocjid()
 void updateall()
 {
 	struct waitqueue *p;
-
+	#ifdef DEBUG
+		printf("Before update:\n");
+	#endif
 	/* 更新作业运行时间 */
 	if(current)
 		current->job->run_time += 1; /* 加1代表1000ms */
@@ -92,6 +99,9 @@ void updateall()
 			p->job->wait_time = 0;
 		}
 	}
+	#ifdef DEBUG
+		printf("After update:\n");
+	#endif
 }
 
 struct waitqueue* jobselect()
@@ -182,7 +192,7 @@ void sig_handler(int sig,siginfo_t *info,void *notused)
 case SIGVTALRM: /* 到达计时器所设置的计时间隔 */
 	scheduler();
 	#ifdef DEBUG
-	printf("SIGVTALRM RECEIVED!\n");
+		printf("SIGVTALRM RECEIVED!\n");
     #endif
 	return;
 case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
@@ -240,13 +250,13 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 
 	arglist[i] = NULL;
 
-#ifdef DEBUG
+	#ifdef DEBUG
 
-	printf("enqcmd argnum %d\n",enqcmd.argnum);
-	for(i = 0;i < enqcmd.argnum; i++)
-		printf("parse enqcmd:%s\n",arglist[i]);
+		printf("enqcmd argnum %d\n",enqcmd.argnum);
+		for(i = 0;i < enqcmd.argnum; i++)
+			printf("parse enqcmd:%s\n",arglist[i]);
 
-#endif
+	#endif
 
 	/*向等待队列中增加新的作业*/
 	newnode = (struct waitqueue*)malloc(sizeof(struct waitqueue));
@@ -268,12 +278,12 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 		newjob->pid =getpid();
 		/*阻塞子进程,等等执行*/
 		raise(SIGSTOP);
-#ifdef DEBUG
+	#ifdef DEBUG
 
 		printf("begin running\n");
 		for(i=0;arglist[i]!=NULL;i++)
 			printf("arglist %s\n",arglist[i]);
-#endif
+	#endif
 
 		/*复制文件描述符到标准输出*/
 		dup2(globalfd,1);
@@ -387,7 +397,7 @@ int main()
 	struct sigaction newact,oldact1,oldact2;
     
 	#ifdef DEBUG
-	              printf("DEBUG IS OPEN!");
+		printf("DEBUG IS OPEN!\n");
     #endif
 	if(stat("/tmp/server",&statbuf)==0){
 		/* 如果FIFO文件存在,删掉 */

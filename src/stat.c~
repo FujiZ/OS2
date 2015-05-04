@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ﻿#include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
@@ -6,7 +5,7 @@
 #include <sys/ipc.h>
 #include <fcntl.h>
 #include "job.h"
-
+#define DEBUG
 /* 
  * 命令语法格式
  *     stat
@@ -31,6 +30,15 @@ int main(int argc,char *argv[])
 	statcmd.defpri=0;
 	statcmd.owner=getuid();
 	statcmd.argnum=0;
+	#ifdef DEBUG
+		printf("statcmd cmdtype\t%d\(-1 means ENQ,-2 means DEQ,-3 means STAT)\n"
+			"statcmd owner\t%d\n"
+			"statcmd defpri\t%d\n"
+			"statcmd data\t%s\n"
+			"statcmd argnum\t%d\n",
+			statcmd.type,statcmd.owner,statcmd.defpri,statcmd.data,statcmd.argnum);
+
+    #endif 
 
 	if((fd=open("/tmp/server",O_WRONLY))<0)
 		error_sys("stat open fifo failed");
@@ -41,47 +49,3 @@ int main(int argc,char *argv[])
 	close(fd);
 	return 0;
 }
-=======
-﻿#include <unistd.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/ipc.h>
-#include <fcntl.h>
-#include "job.h"
-
-/* 
- * 命令语法格式
- *     stat
- */
-void usage()
-{
-	printf("Usage: stat\n");		
-}
-
-int main(int argc,char *argv[])
-{
-	struct jobcmd statcmd;
-	int fd;
-
-	if(argc!=1)
-	{
-		usage();
-		return 1;
-	}
-
-	statcmd.type=STAT;
-	statcmd.defpri=0;
-	statcmd.owner=getuid();
-	statcmd.argnum=0;
-
-	if((fd=open("/tmp/server",O_WRONLY))<0)
-		error_sys("stat open fifo failed");
-
-	if(write(fd,&statcmd,DATALEN)<0)
-		error_sys("stat write failed");
-
-	close(fd);
-	return 0;
-}
->>>>>>> master
