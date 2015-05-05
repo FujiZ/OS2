@@ -13,7 +13,7 @@
 int jobid=0;
 int siginfo=1;
 int fifo;
-int globalfd;
+int globalfd;//似乎并没有什么卵用
 
 struct waitqueue *head=NULL;
 struct waitqueue *next=NULL,*current =NULL;
@@ -24,7 +24,7 @@ void scheduler()
 	struct jobinfo *newjob=NULL;
 	struct jobcmd cmd;
 	int  count = 0;
-	bzero(&cmd,DATALEN);
+	bzero(&cmd,DATALEN);//初始化CMD
 	if((count=read(fifo,&cmd,DATALEN))<0)
 		error_sys("read fifo failed");
 	#ifdef DEBUG
@@ -38,7 +38,7 @@ void scheduler()
 
 	/* 更新等待队列中的作业 */
 	#ifdef DEBUG
-	       printf("Update jobs in wait queue!\n");
+		printf("Update jobs in wait queue!\n");
     #endif
 	updateall();
 
@@ -84,7 +84,9 @@ int allocjid()
 void updateall()
 {
 	struct waitqueue *p;
-
+	#ifdef DEBUG
+		printf("Before update:\n");
+	#endif
 	/* 更新作业运行时间 */
 	if(current)
 		current->job->run_time += 1; /* 加1代表1000ms */
@@ -97,6 +99,9 @@ void updateall()
 			p->job->wait_time = 0;
 		}
 	}
+	#ifdef DEBUG
+		printf("After update:\n");
+	#endif
 }
 
 struct waitqueue* jobselect()
@@ -189,6 +194,7 @@ case SIGVTALRM: /* 到达计时器所设置的计时间隔 */
 	#ifdef DEBUG
 		printf("SIGVTALRM RECEIVED!\n");
     #endif
+	alarm(1);
 	return;
 case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
 	ret = waitpid(-1,&status,WNOHANG);
@@ -281,7 +287,7 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 	#endif
 
 		/*复制文件描述符到标准输出*/
-		dup2(globalfd,1);
+		//dup2(globalfd,1);
 		/* 执行命令 */
 		if(execv(arglist[0],arglist)<0)
 			printf("exec failed\n");
@@ -289,6 +295,7 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 	}else{
 		newjob->pid=pid;
 	}
+	
 }
 
 void do_deq(struct jobcmd deqcmd)
@@ -411,7 +418,7 @@ int main()
 	sigemptyset(&newact.sa_mask);
 	newact.sa_flags=SA_SIGINFO;
 	sigaction(SIGCHLD,&newact,&oldact1);
-	sigaction(SIGVTALRM,&newact,&oldact2);
+	sigaction(SIGALRM,&newact,&oldact2);
 
 	/* 设置时间间隔为1000毫秒 */
 	interval.tv_sec=1;
@@ -419,11 +426,11 @@ int main()
 
 	new.it_interval=interval;
 	new.it_value=interval;
-	setitimer(ITIMER_VIRTUAL,&new,&old);
-
+	//setitimer(ITIMER_VIRTUAL,&new,&old);使用alarm来记时
+	alarm(1);
 	while(siginfo==1);
 
 	close(fifo);
-	close(globalfd);
+	//close(globalfd);
 	return 0;
 }

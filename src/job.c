@@ -13,7 +13,7 @@
 int jobid=0;
 int siginfo=1;
 int fifo;
-int globalfd;
+int globalfd;//似乎并没有什么卵用
 
 struct waitqueue *head=NULL;
 struct waitqueue *next=NULL,*current =NULL;
@@ -189,11 +189,12 @@ void sig_handler(int sig,siginfo_t *info,void *notused)
 	int ret;
 
 	switch (sig) {
-case SIGVTALRM: /* 到达计时器所设置的计时间隔 */
+case SIGALRM: /* 到达计时器所设置的计时间隔 */
 	scheduler();
 	#ifdef DEBUG
 		printf("SIGVTALRM RECEIVED!\n");
     #endif
+	alarm(1);
 	return;
 case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
 	ret = waitpid(-1,&status,WNOHANG);
@@ -286,11 +287,13 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 	#endif
 
 		/*复制文件描述符到标准输出*/
-		dup2(globalfd,1);
+		//dup2(globalfd,1);
 		/* 执行命令 */
 		if(execv(arglist[0],arglist)<0)
 			printf("exec failed\n");
 		exit(1);
+	}else{
+		newjob->pid=pid;
 	}
 	
 }
@@ -415,7 +418,7 @@ int main()
 	sigemptyset(&newact.sa_mask);
 	newact.sa_flags=SA_SIGINFO;
 	sigaction(SIGCHLD,&newact,&oldact1);
-	sigaction(SIGVTALRM,&newact,&oldact2);
+	sigaction(SIGALRM,&newact,&oldact2);
 
 	/* 设置时间间隔为1000毫秒 */
 	interval.tv_sec=1;
@@ -423,11 +426,11 @@ int main()
 
 	new.it_interval=interval;
 	new.it_value=interval;
-	setitimer(ITIMER_VIRTUAL,&new,&old);
-
+	//setitimer(ITIMER_VIRTUAL,&new,&old);使用alarm来记时
+	alarm(1);
 	while(siginfo==1);
 
 	close(fifo);
-	close(globalfd);
+	//close(globalfd);
 	return 0;
 }
