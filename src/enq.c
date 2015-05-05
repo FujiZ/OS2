@@ -45,9 +45,9 @@ int main(int argc,char *argv[])
 		}
 	}
 
-	if(p<0||p>3)
+	if(p<0||p>2)//修改上下界以适应RR算法
 	{
-		printf("invalid priority:must between 0 and 3\n");
+		printf("invalid priority:must between 0 and 2\n");
 		return 1;
 	}
 

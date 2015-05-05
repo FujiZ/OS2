@@ -24,7 +24,7 @@ void scheduler()
 	struct jobinfo *newjob=NULL;
 	struct jobcmd cmd;
 	int  count = 0;
-	bzero(&cmd,DATALEN);
+	bzero(&cmd,DATALEN);//初始化CMD
 	if((count=read(fifo,&cmd,DATALEN))<0)
 		error_sys("read fifo failed");
 	#ifdef DEBUG
@@ -291,9 +291,8 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 		if(execv(arglist[0],arglist)<0)
 			printf("exec failed\n");
 		exit(1);
-	}else{
-		newjob->pid=pid;
 	}
+	
 }
 
 void do_deq(struct jobcmd deqcmd)
