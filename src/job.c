@@ -9,7 +9,14 @@
 #include <fcntl.h>
 #include <time.h>
 #include "job.h"
-
+#define DEBUG
+#define DEBUG_UPDT
+#define DEBUG_ENQ
+#define DEBUG_DEQ
+#define DEBUG_STAT
+#define DEBUG_JBSEL
+#define DEBUG_JBSWCH
+#define DEBUG_SIGCHLD
 int jobid=0;
 int siginfo=1;
 int fifo;
@@ -48,26 +55,62 @@ void scheduler()
 	#ifdef DEBUG
 		printf("Update jobs in wait queue!\n");
     #endif
+	
+	#ifdef DEBUG_UPDT
+		printf("Before update:\n");
+		printQueue();
+	#endif
 	updateall();
-
+	#ifdef DEBUG_UPDT
+		printf("After update:\n");
+		printQueue();
+	#endif
+	
 	switch(cmd.type){
 	case ENQ:
 	#ifdef DEBUG
 		printf("Execute enq!\n");
     #endif
+	
+	#ifdef DEBUG_ENQ
+		printf("Before ENQ:\n");
+		printQueue();
+	#endif
 		flag=do_enq(newjob,cmd);
+	#ifdef DEBUG_ENQ
+		printf("After ENQ:\n");
+		printQueue();
+	#endif
 		break;
 	case DEQ:
 	#ifdef DEBUG
 		printf("Execute deq!\n");
     #endif
+	
+	#ifdef DEBUG_DEQ
+		printf("Before DEQ:\n");
+		printQueue();
+	#endif
 		do_deq(cmd);
+	#ifdef DEBUG_DEQ
+		printf("After DEQ:\n");
+		printQueue();
+	#endif
 		break;
 	case STAT:
 	#ifdef DEBUG
 		printf("Execute stat!\n");
     #endif
+	
+	#ifdef DEBUG_STAT
+		printf("Before STAT:\n");
+		printQueue();
+	#endif
 		do_stat(cmd);
+	#ifdef DEBUG_STAT
+		printf("After STAT:\n");
+		printQueue();
+	#endif
 		break;
 	default:
 		break;
@@ -78,11 +121,25 @@ void scheduler()
 		#endif
 		/* 选择高优先级作业 */
 		next=jobselect();
+		#ifdef DEBUG_JBSEL
+			printf("Selected job:\n");
+			printJob(next);
+		#endif
+		
 		/* 作业切换 */
 		#ifdef DEBUG
 			printf("Switch to the next job!\n");
 		#endif
+		
+		#ifdef DEBUG_JBSWCH
+			printf("Before switch:\n");
+			do_stat((struct jobcmd)NULL);
+		#endif
 		jobswitch();
+		#ifdef DEBUG_JBSWCH
+			printf("After switch:\n");
+			do_stat((struct jobcmd)NULL);
+		#endif
 	}
 }
 
@@ -95,9 +152,6 @@ void updateall()
 {
 	struct waitqueue *p,*prev;
 	int i;
-	#ifdef DEBUG
-		printf("Before update:\n");
-	#endif
 	/* 更新作业运行时间 */
 	if(current){
 		++current->job->run_time; //加上1S
@@ -130,9 +184,6 @@ void updateall()
 			}
 		}			
 	}
-	#ifdef DEBUG
-		printf("After update:\n");
-	#endif
 }
 
 struct waitqueue* jobselect()
@@ -232,6 +283,10 @@ case SIGVTALRM: /* 到达计时器所设置的计时间隔 */
 	setitimer(ITIMER_VIRTUAL,&new,&old);
 	return;
 case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
+	#ifdef DEBUG_SIGCHLD
+		printf("SIGCHLD RECEIVED!\n");
+		do_stat((struct jobcmd)NULL);
+	#endif
 	ret = waitpid(-1,&status,WNOHANG);
 	if (ret == 0)
 		return;
@@ -298,7 +353,6 @@ int do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 	newnode = (struct waitqueue*)malloc(sizeof(struct waitqueue));
 	newnode->next =NULL;
 	newnode->job=newjob;
-	
 	//将作业直接插到对应队列的队头
 	newnode->next=head[newjob->curpri];
 	head[newjob->curpri]=newnode;
@@ -436,6 +490,48 @@ void do_stat(struct jobcmd statcmd)
 		}
 	}
 }
+
+void printQueue(){
+	/* 打印信息头部 */
+	int i;
+	char timebuf[BUFLEN];
+	printf("JOBID\tPID\tOWNER\tRUNTIME\tWAITTIME\tCREATTIME\t\tSTATE\n");
+	for(i=2;i>=0;--i){
+		if(head[i])
+			printf("In queue %d:\n",i);
+		for(p=head[i];p!=NULL;p=p->next){
+			strcpy(timebuf,ctime(&(p->job->create_time)));
+			timebuf[strlen(timebuf)-1]='\0';
+			printf("%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
+				p->job->jid,
+				p->job->pid,
+				p->job->ownerid,
+				p->job->run_time,
+				p->job->wait_time,
+				timebuf,
+				"READY");
+		}
+	}
+}
+
+void printJob(struct waitqueue* node){
+	/* 打印信息头部 */
+	int i;
+	char timebuf[BUFLEN];
+	printf("JOBID\tPID\tOWNER\tRUNTIME\tWAITTIME\tCREATTIME\t\tSTATE\n");
+	if(!node)
+		return;
+	strcpy(timebuf,ctime(&(node->job->create_time)));
+	timebuf[strlen(timebuf)-1]='\0';
+	printf("%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
+		node->job->jid,
+		node->job->pid,
+		node->job->ownerid,
+		node->job->run_time,
+		node->job->wait_time,
+		timebuf,
+		"READY");
+}	
 
 int main()
 {
