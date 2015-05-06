@@ -57,7 +57,7 @@ void sig_handler(int sig,siginfo_t *info,void *notused);
 int allocjid();
 void add_queue(struct jobinfo *job);
 void del_queue(struct jobinfo *job);
-void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd);
+int do_enq(struct jobinfo *newjob,struct jobcmd enqcmd);
 void do_deq(struct jobcmd deqcmd);
 void do_stat(struct jobcmd statcmd);
 void updateall();

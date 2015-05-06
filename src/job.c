@@ -22,6 +22,8 @@ struct waitqueue *next=NULL,*current =NULL;
 struct timeval interval;
 struct itimerval new,old;
 
+int tused=0;
+
 /* 调度程序 */
 
 void scheduler()
@@ -29,6 +31,7 @@ void scheduler()
 	struct jobinfo *newjob=NULL;
 	struct jobcmd cmd;
 	int  count = 0;
+	int flag=0;
 	bzero(&cmd,DATALEN);//初始化CMD
 	if((count=read(fifo,&cmd,DATALEN))<0)
 		error_sys("read fifo failed");
@@ -52,7 +55,7 @@ void scheduler()
 	#ifdef DEBUG
 		printf("Execute enq!\n");
     #endif
-		do_enq(newjob,cmd);
+		flag=do_enq(newjob,cmd);
 		break;
 	case DEQ:
 	#ifdef DEBUG
@@ -69,73 +72,20 @@ void scheduler()
 	default:
 		break;
 	}
-	#ifdef DEBUG
-		printf("Select which job to run next!\n");
-	#endif
-	/* 选择高优先级作业 */
-	next=jobselect();
-	/* 作业切换 */
-	#ifdef DEBUG
-		printf("Switch to the next job!\n");
-	#endif
-	jobswitch();
+	if(flag||tused>=tslice){
+		#ifdef DEBUG
+			printf("Select which job to run next!\n");
+		#endif
+		/* 选择高优先级作业 */
+		next=jobselect();
+		/* 作业切换 */
+		#ifdef DEBUG
+			printf("Switch to the next job!\n");
+		#endif
+		jobswitch();
+	}
 }
-/*void scheduler()
-{
-	struct jobinfo *newjob=NULL;
-	struct jobcmd cmd;
-	int  count = 0;
-	bzero(&cmd,DATALEN);//初始化CMD
-	if((count=read(fifo,&cmd,DATALEN))<0)
-		error_sys("read fifo failed");
-	#ifdef DEBUG
-    	printf("Reading whether other process send command!\n");
-		if(count){
-			printf("cmd cmdtype\t%d\ncmd defpri\t%d\ncmd data\t%s\n",cmd.type,cmd.defpri,cmd.data);
-		}
-		else
-			printf("no data read\n");
-	#endif
 
-	//更新等待队列中的作业
-	#ifdef DEBUG
-		printf("Update jobs in wait queue!\n");
-    #endif
-	updateall();
-
-	switch(cmd.type){
-	case ENQ:
-	#ifdef DEBUG
-		printf("Execute enq!\n");
-    #endif
-		do_enq(newjob,cmd);
-		break;
-	case DEQ:
-	#ifdef DEBUG
-		printf("Execute deq!\n");
-    #endif
-		do_deq(cmd);
-		break;
-	case STAT:
-	#ifdef DEBUG
-		printf("Execute stat!\n");
-    #endif
-		do_stat(cmd);
-		break;
-	default:
-		break;
-	}
-	#ifdef DEBUG
-		printf("Select which job to run next!\n");
-	#endif
-	//选择高优先级作业
-	next=jobselect();
-	//作业切换
-	#ifdef DEBUG
-		printf("Switch to the next job!\n");
-	#endif
-	jobswitch();
-}*/
 int allocjid()
 {
 	return ++jobid;
@@ -149,13 +99,14 @@ void updateall()
 		printf("Before update:\n");
 	#endif
 	/* 更新作业运行时间 */
-	if(current)
-		current->job->run_time += interval.tv_sec; //加上上一个时间片的长度
-
+	if(current){
+		++current->job->run_time; //加上1S
+		++tused;
+	}
 	/* 更新作业等待时间及优先级 */
 	for(i=2;i>=0;--i){
 		for(prev=NULL,p = head[i]; p != NULL;){
-			p->job->wait_time += interval.tv_sec*1000;
+			p->job->wait_time += 1000;
 			if(p->job->wait_time >= 10000&i<2){//满足提高优先级条件
 				p->job->curpri++;
 				p->job->wait_time = 0;
@@ -189,12 +140,14 @@ struct waitqueue* jobselect()
 	struct waitqueue *select;
 	int i;
 	select = NULL;
-	
+	//与当前的任务优先级有关
 	for(i=2;i>=0;--i){
 		if(head[i]){
-			select=head[i];
-			head[i]=select->next;
-			return select;
+			if(current&&i>=current->job->curpri){
+				select=head[i];
+				head[i]=select->next;
+				return select;
+			}
 		}
 	}
 	return select;
@@ -220,7 +173,7 @@ void jobswitch()
 	}
 
 	if(next == NULL && current == NULL){ /* 没有作业要运行 */
-		interval.tv_sec=1;//设置时间片长度为默认
+		tused=0;
 		return;
 	}
 	else if (next != NULL && current == NULL){ /* 开始新的作业 */
@@ -228,6 +181,7 @@ void jobswitch()
 		current = next;
 		next = NULL;
 		current->job->state = RUNNING;
+		tused=0;
 		kill(current->job->pid,SIGCONT);
 		interval.tv_sec=tslice[current->job->curpri];//设置时间片长度
 		return;
@@ -252,11 +206,13 @@ void jobswitch()
 		current = next;
 		next = NULL;
 		current->job->state = RUNNING;
+		tused=0;
 		current->job->wait_time = 0;
 		kill(current->job->pid,SIGCONT);
 		interval.tv_sec=tslice[current->job->curpri];//设置时间片长度
 		return;
 	}else{ /* next == NULL且current != NULL，不切换 */
+		tused=0;
 		return;
 	}
 }
@@ -272,9 +228,7 @@ case SIGVTALRM: /* 到达计时器所设置的计时间隔 */
 	#ifdef DEBUG
 		printf("SIGVTALRM RECEIVED!\n");
     #endif
-	//alarm(1);
 	//每次执行完调度后重新设置时间
-	new.it_value=interval;
 	setitimer(ITIMER_VIRTUAL,&new,&old);
 	return;
 case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
@@ -295,7 +249,7 @@ case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
 	}
 }
 
-void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
+int do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 {
 	struct waitqueue *newnode,*p;
 	int i=0,pid;
@@ -363,9 +317,7 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 		for(i=0;arglist[i]!=NULL;i++)
 			printf("arglist %s\n",arglist[i]);
 	#endif
-
-		/*复制文件描述符到标准输出*/
-		//dup2(globalfd,1);
+	
 		/* 执行命令 */
 		if(execv(arglist[0],arglist)<0)
 			printf("exec failed\n");
@@ -373,6 +325,8 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 	}else{
 		newjob->pid=pid;
 	}
+	
+	return (newjob->curpri>=current->job->curpri);
 	
 }
 
