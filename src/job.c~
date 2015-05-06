@@ -437,7 +437,6 @@ void do_stat(struct jobcmd statcmd)
 {
 	struct waitqueue *p;
 	char timebuf[BUFLEN];
-	int i;
 	/*
 	*打印所有作业的统计信息:
 	*1.作业ID
