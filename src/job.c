@@ -9,13 +9,13 @@
 #include <fcntl.h>
 #include <time.h>
 #include "job.h"
-#define DEBUG
-#define DEBUG_UPDT
-#define DEBUG_ENQ
-#define DEBUG_DEQ
-#define DEBUG_STAT
-#define DEBUG_JBSEL
-#define DEBUG_JBSWCH
+//#define DEBUG
+//#define DEBUG_UPDT
+//#define DEBUG_ENQ
+//#define DEBUG_DEQ
+//#define DEBUG_STAT
+//#define DEBUG_JBSEL
+//#define DEBUG_JBSWCH
 #define DEBUG_SIGCHLD
 int jobid=0;
 int siginfo=1;
@@ -106,7 +106,7 @@ void scheduler()
 		printf("Before STAT:\n");
 		printQueue();
 	#endif
-		do_stat(cmd);
+		do_stat();
 	#ifdef DEBUG_STAT
 		printf("After STAT:\n");
 		printQueue();
@@ -133,12 +133,12 @@ void scheduler()
 		
 		#ifdef DEBUG_JBSWCH
 			printf("Before switch:\n");
-			do_stat((struct jobcmd)NULL);
+			do_stat();
 		#endif
 		jobswitch();
 		#ifdef DEBUG_JBSWCH
 			printf("After switch:\n");
-			do_stat((struct jobcmd)NULL);
+			do_stat();
 		#endif
 	}
 }
@@ -283,15 +283,15 @@ case SIGVTALRM: /* 到达计时器所设置的计时间隔 */
 	setitimer(ITIMER_VIRTUAL,&new,&old);
 	return;
 case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
-	#ifdef DEBUG_SIGCHLD
-		printf("SIGCHLD RECEIVED!\n");
-		do_stat((struct jobcmd)NULL);
-	#endif
 	ret = waitpid(-1,&status,WNOHANG);
 	if (ret == 0)
 		return;
 	if(WIFEXITED(status)){
 		current->job->state = DONE;
+		#ifdef DEBUG_SIGCHLD
+		printf("SIGCHLD RECEIVED!\n");
+		do_stat();
+		#endif
 		printf("normal termation, exit status = %d\n",WEXITSTATUS(status));
 	}else if (WIFSIGNALED(status)){
 		printf("abnormal termation, signal number = %d\n",WTERMSIG(status));
@@ -444,7 +444,7 @@ void do_deq(struct jobcmd deqcmd)
 	}
 }
 
-void do_stat(struct jobcmd statcmd)
+void do_stat()
 {
 	struct waitqueue *p;
 	char timebuf[BUFLEN];
@@ -471,7 +471,7 @@ void do_stat(struct jobcmd statcmd)
 			current->job->ownerid,
 			current->job->run_time,
 			current->job->wait_time,
-			timebuf,"RUNNING");
+			timebuf,(current->job->state==RUNNING?"RUNNING":"DONE"));
 	}
 	for(i=2;i>=0;--i){
 		if(head[i])
@@ -494,6 +494,7 @@ void do_stat(struct jobcmd statcmd)
 void printQueue(){
 	/* 打印信息头部 */
 	int i;
+	struct waitqueue *p;
 	char timebuf[BUFLEN];
 	printf("JOBID\tPID\tOWNER\tRUNTIME\tWAITTIME\tCREATTIME\t\tSTATE\n");
 	for(i=2;i>=0;--i){
@@ -516,7 +517,6 @@ void printQueue(){
 
 void printJob(struct waitqueue* node){
 	/* 打印信息头部 */
-	int i;
 	char timebuf[BUFLEN];
 	printf("JOBID\tPID\tOWNER\tRUNTIME\tWAITTIME\tCREATTIME\t\tSTATE\n");
 	if(!node)
