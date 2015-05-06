@@ -324,6 +324,7 @@ int do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 		exit(1);
 	}else{
 		newjob->pid=pid;
+		waitpid(pid,NULL,0);
 	}
 	if(current)
 		return (newjob->curpri>=current->job->curpri);
