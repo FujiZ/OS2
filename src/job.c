@@ -13,12 +13,17 @@
 int jobid=0;
 int siginfo=1;
 int fifo;
-int globalfd;//似乎并没有什么卵用
+//int globalfd;//似乎并没有什么卵用
 
-struct waitqueue *head=NULL;
+struct waitqueue *head[3]={NULL,NULL,NULL};//对应三个队列，数字越大优先级越高
+int tslice[3]={5,2,1};//三个队列的时间片大小
 struct waitqueue *next=NULL,*current =NULL;
 
+struct timeval interval;
+struct itimerval new,old;
+
 /* 调度程序 */
+
 void scheduler()
 {
 	struct jobinfo *newjob=NULL;
@@ -75,7 +80,62 @@ void scheduler()
 	#endif
 	jobswitch();
 }
+/*void scheduler()
+{
+	struct jobinfo *newjob=NULL;
+	struct jobcmd cmd;
+	int  count = 0;
+	bzero(&cmd,DATALEN);//初始化CMD
+	if((count=read(fifo,&cmd,DATALEN))<0)
+		error_sys("read fifo failed");
+	#ifdef DEBUG
+    	printf("Reading whether other process send command!\n");
+		if(count){
+			printf("cmd cmdtype\t%d\ncmd defpri\t%d\ncmd data\t%s\n",cmd.type,cmd.defpri,cmd.data);
+		}
+		else
+			printf("no data read\n");
+	#endif
 
+	//更新等待队列中的作业
+	#ifdef DEBUG
+		printf("Update jobs in wait queue!\n");
+    #endif
+	updateall();
+
+	switch(cmd.type){
+	case ENQ:
+	#ifdef DEBUG
+		printf("Execute enq!\n");
+    #endif
+		do_enq(newjob,cmd);
+		break;
+	case DEQ:
+	#ifdef DEBUG
+		printf("Execute deq!\n");
+    #endif
+		do_deq(cmd);
+		break;
+	case STAT:
+	#ifdef DEBUG
+		printf("Execute stat!\n");
+    #endif
+		do_stat(cmd);
+		break;
+	default:
+		break;
+	}
+	#ifdef DEBUG
+		printf("Select which job to run next!\n");
+	#endif
+	//选择高优先级作业
+	next=jobselect();
+	//作业切换
+	#ifdef DEBUG
+		printf("Switch to the next job!\n");
+	#endif
+	jobswitch();
+}*/
 int allocjid()
 {
 	return ++jobid;
@@ -83,21 +143,41 @@ int allocjid()
 
 void updateall()
 {
-	struct waitqueue *p;
+	struct waitqueue *p,*prev;
+	int i;
 	#ifdef DEBUG
 		printf("Before update:\n");
 	#endif
 	/* 更新作业运行时间 */
 	if(current)
-		current->job->run_time += 1; /* 加1代表1000ms */
+		current->job->run_time += interval.tv_sec; //加上上一个时间片的长度
 
 	/* 更新作业等待时间及优先级 */
-	for(p = head; p != NULL; p = p->next){
-		p->job->wait_time += 1000;
-		if(p->job->wait_time >= 5000 && p->job->curpri < 3){
-			p->job->curpri++;
-			p->job->wait_time = 0;
-		}
+	for(i=2;i>=0;--i){
+		for(prev=NULL,p = head[i]; p != NULL;){
+			p->job->wait_time += interval.tv_sec*1000;
+			if(p->job->wait_time >= 10000&i<2){//满足提高优先级条件
+				p->job->curpri++;
+				p->job->wait_time = 0;
+				//将当前节点移动到高优先级队列队头
+				if(p!=head[i]){
+					prev->next=p->next;
+					p->next=head[i+1];
+					head[i+1]=p;
+					p=prev->next;
+				}
+				else{
+					head[i]=p->next;
+					p->next=head[i+1];
+					head[i+1]=p;
+					p=head[i];
+				}
+			}
+			else{
+				prev=p;
+				p=p->next;
+			}
+		}			
 	}
 	#ifdef DEBUG
 		printf("After update:\n");
@@ -106,22 +186,16 @@ void updateall()
 
 struct waitqueue* jobselect()
 {
-	struct waitqueue *p,*prev,*select,*selectprev;
-	int highest = -1;
-
+	struct waitqueue *select;
+	int i;
 	select = NULL;
-	selectprev = NULL;
-	if(head){
-		/* 遍历等待队列中的作业，找到优先级最高的作业 */
-		for(prev = head, p = head; p != NULL; prev = p,p = p->next)
-			if(p->job->curpri > highest){
-				select = p;
-				selectprev = prev;
-				highest = p->job->curpri;
-			}
-			selectprev->next = select->next;
-			if (select == selectprev)
-				head = NULL;
+	
+	for(i=2;i>=0;--i){
+		if(head[i]){
+			select=head[i];
+			head[i]=select->next;
+			return select;
+		}
 	}
 	return select;
 }
@@ -145,38 +219,42 @@ void jobswitch()
 		current = NULL;
 	}
 
-	if(next == NULL && current == NULL) /* 没有作业要运行 */
-
+	if(next == NULL && current == NULL){ /* 没有作业要运行 */
+		interval.tv_sec=1;//设置时间片长度为默认
 		return;
+	}
 	else if (next != NULL && current == NULL){ /* 开始新的作业 */
-
-		printf("begin start new job\n");
+		printf("begin new job\n");
 		current = next;
 		next = NULL;
 		current->job->state = RUNNING;
 		kill(current->job->pid,SIGCONT);
+		interval.tv_sec=tslice[current->job->curpri];//设置时间片长度
 		return;
 	}
 	else if (next != NULL && current != NULL){ /* 切换作业 */
 
 		printf("switch to Pid: %d\n",next->job->pid);
 		kill(current->job->pid,SIGSTOP);
-		current->job->curpri = current->job->defpri;
+		//将当前作业的优先级降一级
+		if(current->job->curpri>0)
+			--current->job->curpri;
 		current->job->wait_time = 0;
 		current->job->state = READY;
 
 		/* 放回等待队列 */
-		if(head){
-			for(p = head; p->next != NULL; p = p->next);
+		if(head[current->job->curpri]){
+			for(p = head[current->job->curpri]; p->next != NULL; p = p->next);
 			p->next = current;
 		}else{
-			head = current;
+			head[current->job->curpri] = current;
 		}
 		current = next;
 		next = NULL;
 		current->job->state = RUNNING;
 		current->job->wait_time = 0;
 		kill(current->job->pid,SIGCONT);
+		interval.tv_sec=tslice[current->job->curpri];//设置时间片长度
 		return;
 	}else{ /* next == NULL且current != NULL，不切换 */
 		return;
@@ -189,12 +267,15 @@ void sig_handler(int sig,siginfo_t *info,void *notused)
 	int ret;
 
 	switch (sig) {
-case SIGALRM: /* 到达计时器所设置的计时间隔 */
+case SIGVTALRM: /* 到达计时器所设置的计时间隔 */
 	scheduler();
 	#ifdef DEBUG
 		printf("SIGVTALRM RECEIVED!\n");
     #endif
-	alarm(1);
+	//alarm(1);
+	//每次执行完调度后重新设置时间
+	new.it_value=interval;
+	setitimer(ITIMER_VIRTUAL,&new,&old);
 	return;
 case SIGCHLD: /* 子进程结束时传送给父进程的信号 */
 	ret = waitpid(-1,&status,WNOHANG);
@@ -263,13 +344,10 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 	newnode = (struct waitqueue*)malloc(sizeof(struct waitqueue));
 	newnode->next =NULL;
 	newnode->job=newjob;
-
-	if(head)
-	{
-		for(p=head;p->next != NULL; p=p->next);
-		p->next =newnode;
-	}else
-		head=newnode;
+	
+	//将作业直接插到对应队列的队头
+	newnode->next=head[newjob->curpri];
+	head[newjob->curpri]=newnode;
 
 	/*为作业创建进程*/
 	if((pid=fork())<0)
@@ -300,7 +378,7 @@ void do_enq(struct jobinfo *newjob,struct jobcmd enqcmd)
 
 void do_deq(struct jobcmd deqcmd)
 {
-	int deqid,i;
+	int deqid,i,j;
 	struct waitqueue *p,*prev,*select,*selectprev;
 	deqid=atoi(deqcmd.data);
 
@@ -324,26 +402,33 @@ void do_deq(struct jobcmd deqcmd)
 	else{ /* 或者在等待队列中查找deqid */
 		select=NULL;
 		selectprev=NULL;
-		if(head){
-			for(prev=head,p=head;p!=NULL;prev=p,p=p->next)
-				if(p->job->jid==deqid){
-					select=p;
-					selectprev=prev;
-					break;
+		for(i=2;i>=0;--i){
+			if(head[i]){//当前队列非空
+				for(prev=NULL,p=head[i];p!=NULL;prev=p,p=p->next){
+					if(p->job->jid==deqid){
+						select=p;
+						selectprev=prev;
+						break;
+					}
 				}
-				selectprev->next=select->next;
-				if(select==selectprev)
-					head=NULL;
-		}
-		if(select){
-			for(i=0;(select->job->cmdarg)[i]!=NULL;i++){
-				free((select->job->cmdarg)[i]);
-				(select->job->cmdarg)[i]=NULL;
+				if(select){
+					if(select==head[i]){
+						head[i]=select->next;
+					}
+					else{
+						selectprev->next=select->next;
+					}
+					for(i=0;(select->job->cmdarg)[i]!=NULL;i++){
+						free((select->job->cmdarg)[i]);
+						(select->job->cmdarg)[i]=NULL;
+					}
+					free(select->job->cmdarg);
+					free(select->job);
+					free(select);
+					select=NULL;
+					return;
+				}
 			}
-			free(select->job->cmdarg);
-			free(select->job);
-			free(select);
-			select=NULL;
 		}
 	}
 }
@@ -376,25 +461,25 @@ void do_stat(struct jobcmd statcmd)
 			current->job->wait_time,
 			timebuf,"RUNNING");
 	}
-
-	for(p=head;p!=NULL;p=p->next){
-		strcpy(timebuf,ctime(&(p->job->create_time)));
-		timebuf[strlen(timebuf)-1]='\0';
-		printf("%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
-			p->job->jid,
-			p->job->pid,
-			p->job->ownerid,
-			p->job->run_time,
-			p->job->wait_time,
-			timebuf,
-			"READY");
+	for(i=2;i>=0;--i){
+		printf("In queue %d:\n",i);
+		for(p=head[i];p!=NULL;p=p->next){
+			strcpy(timebuf,ctime(&(p->job->create_time)));
+			timebuf[strlen(timebuf)-1]='\0';
+			printf("%d\t%d\t%d\t%d\t%d\t%s\t%s\n",
+				p->job->jid,
+				p->job->pid,
+				p->job->ownerid,
+				p->job->run_time,
+				p->job->wait_time,
+				timebuf,
+				"READY");
+		}
 	}
 }
 
 int main()
 {
-	struct timeval interval;
-	struct itimerval new,old;
 	struct stat statbuf;
 	struct sigaction newact,oldact1,oldact2;
     
@@ -418,16 +503,16 @@ int main()
 	sigemptyset(&newact.sa_mask);
 	newact.sa_flags=SA_SIGINFO;
 	sigaction(SIGCHLD,&newact,&oldact1);
-	sigaction(SIGALRM,&newact,&oldact2);
+	sigaction(SIGVTALRM,&newact,&oldact2);
 
 	/* 设置时间间隔为1000毫秒 */
 	interval.tv_sec=1;
 	interval.tv_usec=0;
 
-	new.it_interval=interval;
+	//new.it_interval=interval;
 	new.it_value=interval;
-	//setitimer(ITIMER_VIRTUAL,&new,&old);使用alarm来记时
-	alarm(1);
+	setitimer(ITIMER_VIRTUAL,&new,&old);
+	//alarm(1);
 	while(siginfo==1);
 
 	close(fifo);
