@@ -32,10 +32,8 @@ int main(int argc,char *argv[])
 	statcmd.argnum=0;
 	#ifdef DEBUG
 		printf("statcmd cmdtype\t%d\(-1 means ENQ,-2 means DEQ,-3 means STAT)\n"
-			"statcmd owner\t%d\n"
-			"statcmd defpri\t%d\n"
-			"statcmd argnum\t%d\n",
-			statcmd.type,statcmd.owner,statcmd.defpri,statcmd.argnum);
+			"statcmd owner\t%d\n",
+			statcmd.type,statcmd.owner);
 
     #endif 
 
