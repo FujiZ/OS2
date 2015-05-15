@@ -16,7 +16,7 @@
 //#define DEBUG_STAT
 //#define DEBUG_JBSEL
 //#define DEBUG_JBSWCH
-#define DEBUG_SIGCHLD
+//#define DEBUG_SIGCHLD
 int jobid=0;
 int siginfo=1;
 int fifo;
@@ -197,6 +197,7 @@ struct waitqueue* jobselect()
 			if(!current||current&&i>=current->job->curpri){
 				select=head[i];
 				head[i]=select->next;
+				select->next=NULL;
 				return select;
 			}
 		}
@@ -241,9 +242,8 @@ void jobswitch()
 
 		printf("switch to Pid: %d\n",next->job->pid);
 		kill(current->job->pid,SIGSTOP);
-		//将当前作业的优先级降一级
-		if(current->job->curpri>0)
-			--current->job->curpri;
+		//将当前作业的优先级变为defpri
+		current->job->curpri=current->job->defpri;
 		current->job->wait_time = 0;
 		current->job->state = READY;
 
